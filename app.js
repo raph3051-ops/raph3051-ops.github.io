@@ -6,7 +6,7 @@
      4  settings    source switches and API keys
      5  net         fetch with timeout, retry, JSONP
      6  mx          matcher: title normaliser, iTunes↔Audius matching, relevance, known artists
-     7  sources     deezer, itunes, audius, youtube, jamendo, openverse, archive, radio
+     7  sources     deezer, itunes, audius, youtube, jamendo, free, archive, radio
      8  rows        full-song policy, row markup, list wiring
      9  player      media (audio + YouTube iframe), queue, Now Playing, Media Session
      10 library     liked songs, playlists, your songs, downloads
@@ -445,7 +445,7 @@
 
   /* ============ 7 sources ============ */
   /* Deezer and iTunes are catalogues only (song info, artwork, charts): their rows carry preview: true and
-     never play. Audio comes from Audius, YouTube, Jamendo, Openverse, the Internet Archive and radio. */
+     never play. Audio comes from Audius, YouTube, Jamendo, the Internet Archive and radio. */
 
   /* ---- deezer (no key; no CORS headers, so JSONP) ---- */
   var Deezer = (function () {
@@ -755,32 +755,70 @@
   function secure() { try { return G.location.protocol === "https:"; } catch (e) { return false; } }
   function httpsOf(u) { return String(u || "").replace(/^http:\/\//i, "https://"); }
 
-  /* ---- openverse (free Creative Commons full songs; no key) ---- */
-  var Openverse = (function () {
-    var LIC = { by: "CC BY", "by-sa": "CC BY-SA", "by-nc": "CC BY-NC", "by-nd": "CC BY-ND", "by-nc-sa": "CC BY-NC-SA", "by-nc-nd": "CC BY-NC-ND", cc0: "CC0", pdm: "Public domain", "sampling+": "CC Sampling+", "nc-sampling+": "CC NC Sampling+" };
-    var PROV = { jamendo: "Jamendo", wikimedia_audio: "Wikimedia", wikimedia: "Wikimedia", freesound: "Freesound", ccmixter: "ccMixter" };
-    function licName(r) {
-      var l = String(r.license || "").toLowerCase(), n = LIC[l] || (l ? l.toUpperCase() : "");
-      if (/^CC BY/.test(n) && r.license_version) n += " " + r.license_version;
-      return n;
+  /* ---- free full songs (replaces Openverse, which kept timing out).
+     Smart search: Internet Archive tracks, fast 7s limit, results cached per search,
+     and a source that fails twice in a row rests for 5 minutes instead of making you wait. ---- */
+  var FreeSongs = (function () {
+    var cache = {}, fails = 0, restUntil = 0;
+    var FILTER = " AND mediatype:audio AND NOT collection:(podcasts OR radioprograms OR oldtimeradio OR librivoxaudio OR audio_bookspoetry OR audio_religion OR audio_podcast OR podcasts_mirror OR etree) AND NOT subject:(podcast OR sermon OR audiobook OR interview OR radio)";
+    function secs(v) {
+      if (v == null) return 0;
+      var p = String(v).split(":").map(Number);
+      if (p.some(isNaN)) return 0;
+      return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : p[0];
     }
-    /* full songs only: at least a minute long, and music when Openverse says what it is */
-    function map(r, sec) {
-      if (!r || !r.id || !/^https?:\/\//i.test(r.url || "")) return null;
-      var ms = +r.duration || 0;
-      if (ms < 60000) return null;
-      if (r.category && String(r.category).toLowerCase() !== "music") return null;
-      var p = String(r.source || r.provider || "").toLowerCase();
-      return { id: "ov:" + r.id, title: trim(r.title) || "Untitled", artist: trim(r.creator) || "Unknown artist", art: r.thumbnail || "",
-        src: sec ? httpsOf(r.url) : r.url, dur: Math.round(ms / 1000), source: "openverse", lic: licName(r), prov: PROV[p] || (p ? p.charAt(0).toUpperCase() + p.slice(1) : "") };
+    function words(x) { return String(x || "").toLowerCase().replace(/[^a-z0-9\u00c0-\u024f\u0186\u0190\u0254\u025b ]+/g, " ").split(/\s+/).filter(function (w) { return w.length > 1; }); }
+    function score(q, t) {
+      var qw = words(q), hay = (t.title + " " + t.artist + " " + (t.album || "")).toLowerCase(), n = 0;
+      qw.forEach(function (w) { if (hay.indexOf(w) >= 0) n++; });
+      return qw.length ? n / qw.length : 0;
+    }
+    function tracksOf(d) {
+      var id = d.identifier;
+      return Net.json("https://archive.org/metadata/" + encodeURIComponent(id) + "?fields=files,metadata", 7000).then(function (m) {
+        var md = (m && m.metadata) || {}, art = "https://archive.org/services/img/" + encodeURIComponent(id);
+        var artist = creator(md.creator || d.creator), album = trim(md.title || d.title || "");
+        var seen = {};
+        return ((m && m.files) || []).filter(function (f) {
+          if (!/\.mp3$/i.test(f.name || "")) return false;
+          var key = (f.title || f.name).toLowerCase().replace(/\.mp3$/, "").replace(/_?(vbr|64kb|128kb|sample)$/, "");
+          if (seen[key]) return false;
+          seen[key] = 1;
+          var len = secs(f.length);
+          return !len || len >= 60;
+        }).slice(0, 12).map(function (f) {
+          var len = secs(f.length);
+          return { id: "ia:" + id + "/" + f.name, title: trim((f.title || f.name).replace(/\.mp3$/i, "").replace(/^\d+[\s._-]+/, "")) || "Untitled",
+            artist: trim(f.artist || f.creator || "") || artist, album: album, art: art, dur: Math.round(len) || 0, source: "free",
+            src: "https://archive.org/download/" + encodeURIComponent(id) + "/" + encodeURIComponent(f.name) };
+        });
+      }, function () { return []; });
     }
     function search(q) {
-      return Net.json("https://api.openverse.org/v1/audio/?q=" + encodeURIComponent(q) + "&page_size=20&category=music", 10000).then(function (j) {
-        var sec = secure();
-        return ((j && j.results) || []).map(function (r) { return map(r, sec); }).filter(Boolean);
+      q = Archive.cleanQ(String(q || ""));
+      if (!q) return Promise.resolve([]);
+      var k = q.toLowerCase();
+      if (cache[k]) return Promise.resolve(cache[k]);
+      if (Date.now() < restUntil) return Promise.reject(new Error("resting after slow replies, back in a few minutes"));
+      var url = "https://archive.org/advancedsearch.php?q=" + encodeURIComponent("(title:(" + q + ") OR creator:(" + q + ")) AND format:(VBR MP3 OR MP3)" + FILTER) +
+        "&fl[]=identifier&fl[]=title&fl[]=creator&sort[]=downloads+desc&rows=8&output=json";
+      return Net.json(url, 7000).then(function (j) {
+        fails = 0;
+        var docs = ((j && j.response && j.response.docs) || []).filter(Archive.notClip).slice(0, 4);
+        return Promise.all(docs.map(tracksOf));
+      }, function (e) {
+        if (++fails >= 2) { restUntil = Date.now() + 300000; fails = 0; }
+        throw e;
+      }).then(function (groups) {
+        var all = [].concat.apply([], groups);
+        all.forEach(function (t) { t._s = score(q, t); });
+        all = all.filter(function (t) { return t._s > 0; }).sort(function (x, y) { return y._s - x._s; }).slice(0, 20);
+        cache[k] = all;
+        return all;
       });
     }
-    return { search: search, map: map };
+    function ping() { return search("highlife"); }
+    return { search: search, ping: ping };
   })();
 
   /* ---- internet archive (albums, podcasts, live concerts, audiobooks) ---- */
@@ -921,13 +959,13 @@
   function canDl(t) { return !!t.src && !t.preview && !t.yt && !t.nodl && !t.live; }
   function badge(t) {
     if (t.live) return '<em class="x-badge x-badge--live">Live</em>';
-    if (t.source === "openverse") return '<em class="x-badge" title="Creative Commons">CC</em>';
+    if (t.source === "free") return '<em class="x-badge" title="Free full song">Free</em>';
     return viaYT(t) ? '<em class="x-badge x-badge--yt" title="Full song via YouTube">YT</em>' : t.source === "jamendo" ? '<em class="x-badge">Free</em>' : "";
   }
   /* the source line under the title in Now Playing */
   function srcCap(t) {
     if (t.live) return '<span class="x-badge x-badge--live">Live</span>Live radio' + (t.country ? " · " + esc(t.country) : "") + (t.br ? " · " + t.br + " kbps" : "");
-    if (t.source === "openverse") return '<span class="x-badge">CC</span>' + esc((t.artist || "Unknown") + " · " + (t.lic || "Creative Commons") + (t.prov ? " · " + t.prov : "") + " via Openverse");
+    if (t.source === "free") return '<span class="x-badge">Free</span>' + esc((t.artist || "Unknown") + " · Free full song · Internet Archive");
     if (t.yt) return '<span class="x-badge x-badge--yt">YT</span>Full song · YouTube';
     if (t.preview) return Settings.ytOn() ? '<span class="x-badge x-badge--yt">YT</span>Full song via YouTube' : "";
     if (t.source === "jamendo") return '<span class="x-badge">Free</span>Free · Jamendo';
@@ -998,7 +1036,7 @@
     box.innerHTML = list.map(kind === "lib" ? libRow : kind === "station" ? stationRow : songRow).join("");
     wire(box, list);
   }
-  /* a titled block (Jamendo, YouTube, Openverse results) */
+  /* a titled block (Jamendo, YouTube, free songs results) */
   function fillBox(box, head, list, empty) {
     box.hidden = false;
     box.classList.toggle("is-empty", !list.length);
@@ -1532,8 +1570,7 @@
       }).catch(function () {
         mark("idle");
         if (t.source === "audius") { toast("This song can't be downloaded"); return; }
-        if (t.source === "openverse") { toast("This song's host doesn't allow downloads. It still plays in full."); return; }
-        if (!btn) toast("That download did not finish. Try again.");
+                if (!btn) toast("That download did not finish. Try again.");
         $("now-note").textContent = "That download did not finish. Try again on a stronger connection.";
       });
     }
@@ -1984,7 +2021,7 @@
     return { run: run, go: go, redraw: redraw, cardHTML: cardHTML, onCard: onCard, init: init, category: function () { return category; } };
   })();
 
-  /* ---- search extras: filter chips, top result, artists, albums, Jamendo, YouTube, Openverse, stations ---- */
+  /* ---- search extras: filter chips, top result, artists, albums, Jamendo, YouTube, free songs, stations ---- */
   var Extras = (function () {
     var tok = 0, artists = [], albums = [], dzA = [], auA = [], sq = "", ytFor = "";
     function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
@@ -2011,7 +2048,7 @@
         return ((b.dz ? 1 : 0) - (a.dz ? 1 : 0)) || (score(b.name, q) - score(a.name, q)) || ((b.fans || +b.follower_count || 0) - (a.fans || +a.follower_count || 0));
       })[0];
       var i = artists.indexOf(best);
-      box.innerHTML = '<p class="x-group">Top result</p><div class="x-top">' + Coll.face(best) +
+      box.innerHTML = '<p class="x-group">Top result</p><div class="x-tr">' + Coll.face(best) +
         '<button class="x-meta" type="button" data-xa="' + i + '"><b>' + esc(best.name) + "</b><span>" + esc(artSub(best)) + "</span></button>" +
         '<button class="x-top__play" type="button" data-xplay="' + i + '" aria-label="Play ' + esc(best.name) + '">' + I.play + "</button></div>";
     }
@@ -2043,17 +2080,17 @@
       if (Settings.jmOn()) Jamendo.search(q).then(function (l) {
         if (mine()) fillBox($("x-res-jm"), "Free &amp; Indie · Jamendo", l, "No free songs found for “" + q + "”.");
       }, function (e) { if (mine()) fillBox($("x-res-jm"), "Free &amp; Indie · Jamendo", [], "Jamendo: " + e.message); });
-      /* Free Full Songs (Openverse) */
-      if (Settings.on("openverse")) {
-        var ob = $("x-res-ov"), H = '<p class="x-group">Free Full Songs · Openverse</p>';
+      /* Free Full Songs (Internet Archive, smart search) */
+      if (Settings.on("free")) {
+        var ob = $("x-res-ov"), H = '<p class="x-group">Free Full Songs</p>';
         ob.hidden = false;
-        ob.innerHTML = H + '<p class="x-sub">Searching Openverse…</p>';
-        Openverse.search(q).then(function (l) {
+        ob.innerHTML = H + '<p class="x-sub">Finding free full songs…</p>';
+        FreeSongs.search(q).then(function (l) {
           if (!mine()) return;
           if (!l.length) { ob.hidden = true; ob.innerHTML = ""; return; }
           ob.innerHTML = H + '<div class="x-rows"></div>';
           fillRows(ob.lastChild, l);
-        }, function (e) { if (mine()) ob.innerHTML = H + '<p class="x-sub">Openverse: ' + esc((e && e.message) || "error") + "</p>"; });
+        }, function () { if (mine()) { ob.hidden = true; ob.innerHTML = ""; } });
       }
       /* a few radio stations by that name */
       if (Settings.on("radio")) Radio.list(Radio.namePath(q, 6)).then(function (l) {
@@ -3459,7 +3496,7 @@
       ];
       if (Settings.ytKey()) list.push(["YouTube", function () { return YouTube.test(Settings.ytKey()); }]);
       if (Settings.jmId()) list.push(["Jamendo", function () { return Jamendo.search("test"); }]);
-      if (Settings.on("openverse")) list.push(["Openverse", function () { return Openverse.search("highlife"); }]);
+      if (Settings.on("free")) list.push(["Free Full Songs", FreeSongs.ping]);
       if (Settings.on("radio")) list.push(["Radio Browser", function () { return Radio.rb("stations/topclick/1?hidebroken=true"); }]);
       box.innerHTML = "";
       var sp = doc.createElement("p");
@@ -3494,7 +3531,7 @@
         Settings.setOn(c.dataset.src, c.checked);
         refresh();
         if (c.dataset.src === "radio") RadioUI.onSwitch();
-        if (c.dataset.src === "openverse" && !c.checked) $("x-res-ov").hidden = true;
+        if (c.dataset.src === "free" && !c.checked) $("x-res-ov").hidden = true;
       });
       src.querySelector("[data-show]").addEventListener("click", function () {
         var reveal = yIn.type === "password";
@@ -3722,7 +3759,7 @@
   var api = {
     version: "2.0",
     store: Store, settings: Settings, net: Net, mx: MX,
-    sources: { deezer: Deezer, itunes: ITunes, audius: Audius, youtube: YouTube, jamendo: Jamendo, openverse: Openverse, archive: Archive, radio: Radio },
+    sources: { deezer: Deezer, itunes: ITunes, audius: Audius, youtube: YouTube, jamendo: Jamendo, free: FreeSongs, archive: Archive, radio: Radio },
     search: Search, media: Media, player: Player, library: Library, lyrics: Lyrics, bot: Bot,
     ui: { show: UI.show, search: SearchUI, extras: Extras, coll: Coll, radio: RadioUI, acts: Acts },
     selfTest: MX.selfTest,

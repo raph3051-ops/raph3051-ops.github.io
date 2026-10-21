@@ -1,5 +1,5 @@
 /* ƐMU YƐ service worker: caches the app shell so it opens offline. All paths are relative to the scope. */
-var CACHE = "emuye-shell-v2";
+var CACHE = "emuye-shell-v3";
 var SHELL = [
   "./",
   "index.html",

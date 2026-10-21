@@ -38,6 +38,7 @@
       }
       html { background: var(--ink); }
       body { background: transparent; color: var(--text-primary); font-family: var(--sans); }
+      html, body { max-width: 100%; overflow-x: clip; }
       .page { max-width: 560px; padding-inline: 16px; padding-block: 0 190px; gap: 14px; }
       .x-top { position: sticky; top: 0; z-index: 45; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-inline: -16px; padding: calc(6px + env(safe-area-inset-top)) 16px 6px; background: var(--x-glass); backdrop-filter: var(--x-blur); -webkit-backdrop-filter: var(--x-blur); border-bottom: 1px solid var(--line); }
       .x-top__title { flex: 1; min-width: 0; font: var(--weight-bold) 17px/1.2 var(--sans); text-align: center; padding-left: var(--tap); opacity: 0; transition: opacity var(--dur-quick) var(--ease-out); }
@@ -277,11 +278,11 @@
       #view-search[data-xf="songs"] :is(#x-topres, #x-res-artists, #x-res-albums),
       #view-search[data-xf="albums"] :is(#x-topres, #x-res-artists, #search-songs, #search-more, #tracks),
       #view-search[data-xf="artists"] :is(#x-res-albums, #search-songs, #search-more, #search-grid, #albums-head, #more-btn, #tracks) { display: none !important; }
-      .x-top { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
-      .x-top img, .x-top i, .x-artist-chip img { flex: none; width: 76px; height: 76px; border-radius: 50%; object-fit: cover; background: var(--panel-2); }
-      .x-top i { display: grid; place-items: center; border: 1px solid rgba(230, 196, 107, 0.45); background: linear-gradient(145deg, #3a2e12, #0b0b0b 75%); color: var(--gold); font: 700 26px/1 var(--sans); font-style: normal; }
-      .x-top > button.x-meta { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 0; cursor: pointer; }
-      .x-top .x-meta b { display: block; font: var(--weight-bold) 20px/1.25 var(--sans); }
+      .x-tr { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+      .x-tr img, .x-tr i, .x-artist-chip img { flex: none; width: 76px; height: 76px; border-radius: 50%; object-fit: cover; background: var(--panel-2); }
+      .x-tr i { display: grid; place-items: center; border: 1px solid rgba(230, 196, 107, 0.45); background: linear-gradient(145deg, #3a2e12, #0b0b0b 75%); color: var(--gold); font: 700 26px/1 var(--sans); font-style: normal; }
+      .x-tr > button.x-meta { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 0; cursor: pointer; }
+      .x-tr .x-meta b { display: block; font: var(--weight-bold) 20px/1.25 var(--sans); }
       .x-top__play { flex: none; display: grid; place-items: center; width: var(--tap); height: var(--tap); border: 0; border-radius: 50%; background: var(--gold); color: #000; cursor: pointer; }
       .x-top__play svg { width: 20px; height: 20px; }
       .x-coll .x-album__art.is-round { border-radius: 50%; }
@@ -385,7 +386,7 @@
       .x-src > div > *, .x-src fieldset, .x-src__field, .x-src__tog > span { min-width: 0; max-width: 100%; }
       .x-src__tog > span { flex: 1 1 auto; }
       .x-src p, .x-src__out, .x-src__tog { overflow-wrap: anywhere; }
-      /* live radio (Radio Browser) and Openverse */
+      /* live radio (Radio Browser) and free songs */
       .x-badge--live { border-color: #c62a2f; background: #c62a2f; color: #fff; }
       .x-live #seek, .x-live .x-times, .x-live #lyr-btn, .x-live #mini-lyrics { display: none !important; }
       #view-search[data-xf="youtube"] :is(#x-res-radio, #x-res-ov),
@@ -425,7 +426,7 @@
         <!-- Listen Now -->
         <section class="x-view is-on" id="view-home" aria-label="Listen Now">
           <h1 class="x-large">Listen Now</h1>
-          <p class="x-sub">Full songs only: Ghana and world charts from the Deezer catalogue, played in full from Audius, YouTube, Jamendo, Openverse and the Internet Archive.</p>
+          <p class="x-sub">Full songs only: Ghana and world charts from the Deezer catalogue, played in full from Audius, YouTube, Jamendo and the Internet Archive.</p>
           <section class="x-gh" aria-labelledby="sh-ghana">
             <div class="x-shelf__head"><h2 id="sh-ghana">Ghana 🇬🇭</h2><button class="x-seeall" type="button" data-gh-see aria-label="See all Ghana genres">See All</button></div>
             <div class="x-shelf__row x-gh-tiles" data-gh-tiles></div>
@@ -614,7 +615,7 @@
         <a href="https://audius.co" rel="noopener" target="_blank">Audius</a>,
         <a href="https://www.youtube.com" rel="noopener" target="_blank">YouTube</a>,
         <a href="https://www.jamendo.com" rel="noopener" target="_blank">Jamendo</a> and
-        <a href="https://openverse.org" rel="noopener" target="_blank">Openverse</a> · catalogue from
+        <a href="https://archive.org" rel="noopener" target="_blank">Internet Archive</a> · catalogue from
         <a href="https://www.deezer.com" rel="noopener" target="_blank">Deezer</a> and
         <a href="https://music.apple.com" rel="noopener" target="_blank">Apple Music</a> · live radio from
         <a href="https://www.radio-browser.info" rel="noopener" target="_blank">Radio Browser</a>
@@ -764,7 +765,7 @@
           <label class="x-src__tog"><span>Deezer<small>Catalogue and charts, played in full from other sources</small></span><input type="checkbox" role="switch" data-src="deezer" checked /></label>
           <label class="x-src__tog"><span>YouTube<small>Full songs on tap, needs a key</small></span><input type="checkbox" role="switch" data-src="youtube" checked /></label>
           <label class="x-src__tog"><span>Jamendo<small>Free full songs to download, needs a Client ID</small></span><input type="checkbox" role="switch" data-src="jamendo" checked /></label>
-          <label class="x-src__tog"><span>Openverse<small>Free full songs, openly licensed</small></span><input type="checkbox" role="switch" data-src="openverse" checked /></label>
+          <label class="x-src__tog"><span>Free Full Songs<small>Smart search of free songs on the Internet Archive</small></span><input type="checkbox" role="switch" data-src="free" checked /></label>
           <label class="x-src__tog"><span>Internet Archive<small>Albums in music search</small></span><input type="checkbox" role="switch" data-src="archive" checked /></label>
           <label class="x-src__tog"><span>Radio<small>Live stations from Radio Browser</small></span><input type="checkbox" role="switch" data-src="radio" checked /></label>
         </fieldset>
